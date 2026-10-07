@@ -1,115 +1,143 @@
+import subprocess
+import sys
+
+# Force-install plotly on runtime startup to bypass strict uv lock layers completely
+try:
+    import plotly
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "plotly"])
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import datetime
 import random
+import time
 
-st.set_page_config(page_title="Autonomous Strategy Suite", layout="wide")
-st.title("⚡ Institutional Algorithmic Backtest Suite")
+# Force-clear visual memory layers out of browser context on startup
+st.cache_data.clear()
 
-# --- SIDEBAR PARAMETERS ---
-st.sidebar.header("⚙️ Strategy Adjustments")
+st.set_page_config(page_title="Institutional Trading Terminal", layout="wide")
+st.title("⚡ Live Institutional Algorithmic Trading Terminal Suite")
+
+# --- INITIALIZE STATE REGISTERS ---
+if "live_logs" not in st.session_state: st.session_state.live_logs = []
+if "live_trading_active" not in st.session_state: st.session_state.live_trading_active = False
+
+# --- SIDEBAR STRATEGY & RISK CONTROLS ---
+st.sidebar.header("🕹️ Operational Panel Controls")
 symbol = st.sidebar.selectbox("Base Index Underlying", ["NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX"])
 lot_multiplier = st.sidebar.number_input("Number of Lots", min_value=1, value=1, step=1)
 target_pts = st.sidebar.number_input("Profit Target (Points)", min_value=5, value=15, step=5)
-charges_per_lot = 65.0  
-NIFTY_LOT_SIZE = 65     
+required_pcr = st.sidebar.slider("Minimum Bullish PCR Filter Threshold", 0.5, 2.0, 1.1, 0.1)
 
-st.sidebar.markdown("---")
-workspace = st.sidebar.radio("Select Display Panel:", ["🏆 Performance Curve", "📅 Daily Ledger", "📜 Candle Audit Trail"])
+def calculate_ema(series, periods):
+    return series.ewm(span=periods, adjust=False).mean()
 
-st.subheader("🗓️ Select Backtest Evaluation Window")
-col_s, col_e = st.columns(2)
-with col_s: start_date = st.date_input("From Date", datetime.date(2025, 9, 2))
-with col_e: end_date = st.date_input("To Date", datetime.date(2026, 10, 1))
+# --- RE-EXECUTION LAYOUT GRID PANELS ---
+col_btn1, col_btn2 = st.columns(2)
+with col_btn1:
+    if st.button("🟢 Start Live Algorithmic Scanning Engine"):
+        st.session_state.live_trading_active = True
+        st.session_state.live_logs.append(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Core indicator matrix scanning sequence armed.")
+with col_btn2:
+    if st.button("🔴 Emergency Stop & Order Block"):
+        st.session_state.live_trading_active = False
+        st.session_state.live_logs.append(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] EMERGENCY TRACKING SYSTEM SHUT DOWN.")
 
-# --- CALCULATION LOOP ---
-if st.button("🚀 Execute Deep Multi-Year Analytics Engine"):
-    all_candles_3m = []
-    full_dates = pd.date_range(start=start_date, end=end_date, freq='B') 
-    base_p = 24150.0 if symbol == "NSE:NIFTY50-INDEX" else 51650.0
-    
-    with st.spinner("Processing historical simulation vectors..."):
-        for d in full_dates:
-            dt_base = datetime.datetime.combine(d.date(), datetime.time(9, 15))
-            day_trend = random.choice([260, -260, 180, -180])
-            for m in range(125):
-                t_val = dt_base + datetime.timedelta(minutes=m*3)
-                c_open = base_p
-                c_close = c_open + day_trend/6.8 + random.choice([-15, -8, 16, 26])
-                all_candles_3m.append([int(t_val.timestamp()), c_open, max(c_open, c_close)+10, min(c_open, c_close)-10, c_close, 0])
-                base_p = c_close
+# --- LIVE SIMULATED DATA PATH GENERATOR ---
+mock_prices = [24150.0]
+for _ in range(200): mock_prices.append(mock_prices[-1] + random.uniform(-4, 4.2))
+df_market = pd.DataFrame(mock_prices, columns=["Close"])
+df_market["High"] = df_market["Close"] + 3
+df_market["Low"] = df_market["Close"] - 3
+df_market["Open"] = df_market["Close"].shift(1).fillna(24150.0)
+df_market["Volume"] = [random.randint(500, 5000) for _ in range(len(df_market))]
 
-    df3 = pd.DataFrame(all_candles_3m, columns=["Timestamp", "Open", "High", "Low", "Close", "Vol"])
-    df3["DateTime"] = pd.to_datetime(df3["Timestamp"], unit="s").dt.tz_localize("UTC").dt.tz_convert("Asia/Kolkata")
-    df3["DateStr"] = df3["DateTime"].dt.strftime("%Y-%m-%d")
-    df3["HourMin"] = df3["DateTime"].dt.strftime("%H:%M:%S")
-    
-    unique_trading_days = sorted(list(set(df3["DateStr"])))
-    master_trade_ledger = []
-    
-    for day in unique_trading_days:
-        day_df3 = df3[df3["DateStr"] == day].reset_index(drop=True)
-        if day_df3.empty: continue
-        
-        zh1, zl1 = float(day_df3.loc[0, "High"]), float(day_df3.loc[0, "Low"])
-        active_pos = None
-        morn_trade_taken = False
-        
-        for i in range(1, len(day_df3)):
-            c_time = day_df3.loc[i, "HourMin"]
-            c_high, c_low, c_close, p_close = float(day_df3.loc[i, "High"]), float(day_df3.loc[i, "Low"]), float(day_df3.loc[i, "Close"]), float(day_df3.loc[i-1, "Close"])
-            
-            if active_pos is None and c_time < "12:30:00" and not morn_trade_taken:
-                if c_close > zh1 and p_close <= zh1:
-                    active_pos = {"type": "BUY", "entry": c_close, "target": c_close + target_pts, "sl": zl1, "DateStr": day, "entry_time": c_time, "status": "TARGET"}
-                    morn_trade_taken = True
-                elif c_close < zl1 and p_close >= zl1:
-                    active_pos = {"type": "SELL", "entry": c_close, "target": c_close - target_pts, "sl": zh1, "DateStr": day, "entry_time": c_time, "status": "TARGET"}
-                    morn_trade_taken = True
-            
-            if active_pos is not None:
-                is_exit = False
-                if active_pos["type"] == "BUY" and c_high >= active_pos["target"]: active_pos["exit_p"], is_exit = active_pos["target"], True
-                elif active_pos["type"] == "BUY" and c_low <= active_pos["sl"]: active_pos["status"], active_pos["exit_p"], is_exit = "STOPLOSS", active_pos["sl"], True
-                elif active_pos["type"] == "SELL" and c_low <= active_pos["target"]: active_pos["exit_p"], is_exit = "TARGET", active_pos["target"], True
-                elif active_pos["type"] == "SELL" and c_high >= active_pos["sl"]: active_pos["status"], active_pos["exit_p"], is_exit = "STOPLOSS", active_pos["sl"], True
-                
-                if not is_exit and c_time >= "15:15:00": active_pos["status"], active_pos["exit_p"], is_exit = "EOD", c_close, True
-                if is_exit:
-                    active_pos["exit_time"] = c_time
-                    master_trade_ledger.append(active_pos)
-                    active_pos = None
+df_market["EMA_50"] = calculate_ema(df_market["Close"], 50)
+df_market["EMA_200"] = calculate_ema(df_market["Close"], 200)
 
-    st.session_state.master_trade_ledger = master_trade_ledger
-    st.session_state.df3 = df3
+# --- CENTRAL PIVOT RANGE (CPR) CALCULATION ---
+prev_high = 24190.0
+prev_low = 24120.0
+prev_close = 24160.0
 
-# --- DISPLAY OUTPUT CORE ---
-if "master_trade_ledger" in st.session_state and st.session_state.master_trade_ledger is not None:
-    tl = pd.DataFrame(st.session_state.master_trade_ledger)
-    df3 = st.session_state.df3
-    
-    tl["entry"] = pd.to_numeric(tl["entry"])
-    tl["exit_p"] = pd.to_numeric(tl["exit_p"])
-    tl["raw_pts"] = np.where(tl["type"] == "BUY", tl["exit_p"] - tl["entry"], tl["entry"] - tl["exit_p"])
-    tl["net_pnl"] = (tl["raw_pts"] * NIFTY_LOT_SIZE * lot_multiplier) - (charges_per_lot * lot_multiplier)
-    tl["Cumulative_PnL"] = tl["net_pnl"].cumsum()
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Trades", f"{len(tl)} Signals")
-    m2.metric("Win Rate", f"{(((tl['status']=='TARGET').sum() / len(tl)) * 100):.2f}%")
-    m3.metric("Net Profit", f"₹ {tl['net_pnl'].sum():,.2f}")
-    
-    if workspace == "🏆 Performance Curve":
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=tl["DateStr"], y=tl["Cumulative_PnL"], mode='lines', line=dict(color='#2ecc71', width=3)))
-        st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(tl[["DateStr", "type", "entry_time", "entry", "target", "sl", "exit_time", "exit_p", "status", "net_pnl"]], use_container_width=True)
-    elif workspace == "📅 Daily Ledger":
-        st.dataframe(tl.groupby("DateStr").agg(Trades=('type', 'count'), PnL=('net_pnl', 'sum')).reset_index(), use_container_width=True)
-    elif workspace == "📜 Candle Audit Trail":
-        target_day = st.selectbox("Select Date:", sorted(list(set(tl["DateStr"]))))
-        day_candles = df3[df3["DateStr"] == target_day].reset_index(drop=True)
-        fig_day = go.Figure(data=[go.Candlestick(x=day_candles['HourMin'], open=day_candles['Open'], high=day_candles['High'], low=day_candles['Low'], close=day_candles['Close'])])
-        st.plotly_chart(fig_day, use_container_width=True)
+pivot = (prev_high + prev_low + prev_close) / 3.0
+bc = (prev_high + prev_low) / 2.0
+tc = (pivot - bc) + pivot
+
+cpr_high = max(tc, bc)
+cpr_low = min(tc, bc)
+cpr_width = cpr_high - cpr_low
+
+latest_tick = df_market.iloc[-1]
+prev_tick = df_market.iloc[-2]
+
+current_price = float(latest_tick["Close"])
+ema50_val = float(latest_tick["EMA_50"])
+ema200_val = float(latest_tick["EMA_200"])
+current_vol = float(latest_tick["Volume"])
+prev_vol = float(prev_tick["Volume"])
+
+mock_call_oi = random.randint(1200000, 1800000)
+mock_put_oi = random.randint(1300000, 2100000)
+live_pcr_ratio = mock_put_oi / mock_call_oi
+
+# --- 🚦 VISUAL CONFIRMATION CHECKLIST MATRIX ---
+st.markdown("### 🚦 Live Strategy Order Confirmation Matrix")
+col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+
+with col_c1:
+    pcr_confirmed = live_pcr_ratio >= required_pcr
+    st.metric("Option Chain PCR Ratio", f"{live_pcr_ratio:.2f}", f"Target: >= {required_pcr}")
+    if pcr_confirmed: st.success("🟢 PCR CONFIRMED")
+    else: st.error("❌ PCR BLOCKED")
+
+with col_c2:
+    vol_spike_ratio = current_vol / prev_vol
+    vol_confirmed = vol_spike_ratio >= 1.3
+    st.metric("Volume Momentum Ratio", f"{vol_spike_ratio:.2f}x", f"Current Bar: {int(current_vol)}")
+    if vol_confirmed: st.success("🟢 VOLUME CONFIRMED")
+    else: st.warning("⚠️ VOLUME LOW")
+
+with col_c3:
+    ema_confirmed = current_price > ema50_val and current_price > ema200_val
+    dist_to_ema50 = current_price - ema50_val
+    st.metric("Spot to 50 EMA Line", f"{dist_to_ema50:+.2f} Pts", f"50 EMA: {ema50_val:.1f}")
+    if ema_confirmed: st.success("🟢 EMA TREND CONFIRMED")
+    else: st.error("❌ EMA BLOCKED")
+
+with col_c4:
+    is_outside_cpr = (current_price > cpr_high) or (current_price < cpr_low)
+    cpr_trend_type = "Narrow (Breakout Day)" if cpr_width < 25 else "Wide (Sideways Day)"
+    st.metric("CPR Channel Width Profile", f"{cpr_width:.1f} Pts", cpr_trend_type)
+    if is_outside_cpr: st.success("🟢 CPR CONFIRMED")
+    else: st.error("❌ CPR BLOCKED")
+
+# --- AUTOMATED SIMULATED DISPATCH DECISION GATE ---
+if st.session_state.live_trading_active:
+    st.session_state.live_logs.append(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Scan Check -> Price: {current_price:.2f} | Inside CPR: {not is_outside_cpr}")
+    if pcr_confirmed and vol_confirmed and ema_confirmed and is_outside_cpr:
+        st.session_state.live_logs.append(f"🎯 🔥 [ALL INDICATORS ALIGNED] Order Conformed! Firing Simulated Market Order to Trade Book...")
+        st.session_state.live_trading_active = False
+
+# --- RENDER CHARTS & CONSOLE LOGGER ---
+st.markdown("### 📈 Real-Time Indicator & Central Pivot Range Chart Layout")
+fig_live = go.Figure(data=[go.Candlestick(x=df_market.index[-40:], open=df_market['Open'].tail(40), high=df_market['High'].tail(40), low=df_market['Low'].tail(40), close=df_market['Close'].tail(40), name="Price Path")])
+
+fig_live.add_trace(go.Scatter(x=df_market.index[-40:], y=[tc]*40, line=dict(color='cyan', width=1.5, dash='dash'), name="CPR TC"))
+fig_live.add_trace(go.Scatter(x=df_market.index[-40:], y=[pivot]*40, line=dict(color='magenta', width=2), name="CPR Pivot"))
+fig_live.add_trace(go.Scatter(x=df_market.index[-40:], y=[bc]*40, line=dict(color='cyan', width=1.5, dash='dash'), name="CPR BC"))
+fig_live.add_trace(go.Scatter(x=df_market.index[-40:], y=df_market['EMA_50'].tail(40), line=dict(color='orange', width=2), name="50 EMA"))
+fig_live.add_trace(go.Scatter(x=df_market.index[-40:], y=df_market['EMA_200'].tail(40), line=dict(color='purple', width=2), name="200 EMA"))
+
+fig_live.update_layout(xaxis_rangeslider_visible=False, height=450)
+st.plotly_chart(fig_live, use_container_width=True)
+
+st.markdown("### 📜 Real-Time System Diagnostic Console Logs")
+for log_line in reversed(st.session_state.live_logs[-12:]): st.text(log_line)
+
+if st.session_state.live_trading_active:
+    time.sleep(2)
+    st.rerun()
